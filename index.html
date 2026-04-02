@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Banco de Usinagem</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4CAF50">
+
+<style>
+body {
+  font-family: Arial;
+  background: #121212;
+  color: white;
+  padding: 20px;
+}
+
+input, select, button {
+  width: 100%;
+  margin: 5px 0;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+}
+
+button {
+  background: #4CAF50;
+  color: white;
+  font-weight: bold;
+}
+
+.card {
+  background: #1e1e1e;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 10px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Cadastro de Usinagem</h2>
+
+<select id="tipo">
+  <option value="fresa">Fresa</option>
+  <option value="broca">Broca</option>
+</select>
+
+<select id="ferramenta">
+  <option value="HSS">HSS</option>
+  <option value="MD">Metal Duro</option>
+</select>
+
+<input type="number" id="diametro" placeholder="Diâmetro (mm)">
+<input type="number" id="facas" placeholder="Nº de facas (fresa)">
+<input type="text" id="material" placeholder="Material usinado">
+
+<input type="number" id="rpm" placeholder="RPM">
+<input type="number" id="avanco" placeholder="Avanço (mm/min)">
+<input type="number" id="profundidade" placeholder="Profundidade (mm)">
+
+<button onclick="salvar()">Salvar</button>
+
+<hr>
+
+<h2>Buscar Sugestão</h2>
+
+<button onclick="buscar()">Calcular Média</button>
+
+<button onclick="exportar()">Exportar .txt</button>
+
+<div id="resultado"></div>
+
+<!-- Firebase compatível -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAnJ1daTx8bKcyf_FJfv5TaUS3AMdBMWp4",
+  authDomain: "banco-usinagem.firebaseapp.com",
+  projectId: "banco-usinagem",
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// ==========================
+// FUNÇÕES
+// ==========================
+
+function pegarDados() {
+  return {
+    tipo: document.getElementById("tipo").value,
+    ferramenta: document.getElementById("ferramenta").value,
+    diametro: parseFloat(document.getElementById("diametro").value),
+    facas: parseInt(document.getElementById("facas").value) || 0,
+    material: document.getElementById("material").value.toLowerCase(),
+    rpm: parseFloat(document.getElementById("rpm").value),
+    avanco: parseFloat(document.getElementById("avanco").value),
+    profundidade: parseFloat(document.getElementById("profundidade").value)
+  };
+}
+
+function similar(a, b) {
+  return (
+    a.tipo === b.tipo &&
+    a.ferramenta === b.ferramenta &&
+    Math.abs(a.diametro - b.diametro) <= 2 &&
+    a.material === b.material
+  );
+}
+
+// ==========================
+// SALVAR
+// ==========================
+
+function salvar() {
+  let dados = pegarDados();
+
+  if (!dados.diametro || !dados.rpm) {
+    alert("Preencha os campos obrigatórios!");
+    return;
+  }
+
+  db.collection("usinagem").add(dados)
+    .then(() => {
+      alert("Salvo na nuvem!");
+
+      document.getElementById("diametro").value = "";
+      document.getElementById("facas").value = "";
+      document.getElementById("material").value = "";
+      document.getElementById("rpm").value = "";
+      document.getElementById("avanco").value = "";
+      document.getElementById("profundidade").value = "";
+    })
+    .catch((e) => {
+      console.error(e);
+      alert("Erro ao salvar");
+    });
+}
+
+// ==========================
+// BUSCAR
+// ==========================
+
+function buscar() {
+  let consulta = pegarDados();
+
+  db.collection("usinagem").get().then(snapshot => {
+    let banco = [];
+
+    snapshot.forEach(doc => banco.push(doc.data()));
+
+    let encontrados = banco.filter(item => similar(consulta, item));
+
+    if (encontrados.length === 0) {
+      document.getElementById("resultado").innerHTML = "Nenhum dado encontrado.";
+      return;
+    }
+
+    let somaRPM = 0, somaAvanco = 0, somaProf = 0;
+
+    encontrados.forEach(e => {
+      somaRPM += e.rpm;
+      somaAvanco += e.avanco;
+      somaProf += e.profundidade;
+    });
+
+    let media = {
+      rpm: (somaRPM / encontrados.length).toFixed(0),
+      avanco: (somaAvanco / encontrados.length).toFixed(0),
+      profundidade: (somaProf / encontrados.length).toFixed(2)
+    };
+
+    document.getElementById("resultado").innerHTML = `
+      <div class="card">
+        <b>Baseado em ${encontrados.length} registros</b><br><br>
+        RPM: ${media.rpm}<br>
+        Avanço: ${media.avanco}<br>
+        Profundidade: ${media.profundidade}
+      </div>
+    `;
+  });
+}
+
+// ==========================
+// EXPORTAR
+// ==========================
+
+function exportar() {
+  db.collection("usinagem").get().then(snapshot => {
+    let texto = "";
+
+    snapshot.forEach(doc => {
+      let d = doc.data();
+
+      texto += `
+Tipo: ${d.tipo}
+Ferramenta: ${d.ferramenta}
+Diâmetro: ${d.diametro} mm
+Facas: ${d.facas}
+Material: ${d.material}
+RPM: ${d.rpm}
+Avanço: ${d.avanco}
+Profundidade: ${d.profundidade}
+-----------------------------
+`;
+    });
+
+    if (!texto) {
+      alert("Nenhum dado para exportar");
+      return;
+    }
+
+    const blob = new Blob([texto], { type: "text/plain" });
+    const link = document.createElement("a");
+
+    link.href = URL.createObjectURL(blob);
+    link.download = "dados_usinagem.txt";
+    link.click();
+  });
+}
+</script>
+
+</body>
+</html>
